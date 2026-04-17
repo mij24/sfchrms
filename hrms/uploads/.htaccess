@@ -1,0 +1,23 @@
+# ============================================
+# FILE: uploads/.htaccess
+# Block PHP execution inside uploads folder
+# ============================================
+# Deny all PHP execution
+<FilesMatch "\.php$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Allow only safe file types to be served
+<FilesMatch "\.(jpg|jpeg|png|gif|pdf|doc|docx)$">
+    Order allow,deny
+    Allow from all
+</FilesMatch>
+
+# Block all other file types
+<FilesMatch "^(?!.*\.(jpg|jpeg|png|gif|pdf|doc|docx)$).*$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+Options -Indexes

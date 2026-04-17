@@ -1,0 +1,6 @@
+# ============================================
+# FILE: includes/.htaccess
+# Block ALL direct browser access to /includes/
+# ============================================
+Order deny,allow
+Deny from all
