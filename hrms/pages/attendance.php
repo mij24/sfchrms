@@ -9,48 +9,56 @@ require_once '../includes/roles.php';
 require_once '../includes/csrf.php';
 enforce_page_role();
 
+// ── HRMS timezone + delta ────────────────────────────────────────
+$_tz_row = $pdo->query("SELECT setting_key,setting_value FROM settings WHERE setting_key IN ('system_timezone','clock_delta_seconds')")->fetchAll(PDO::FETCH_ASSOC);
+$_hrms_tz = 'Asia/Manila'; $_hrms_delta = 0;
+foreach ($_tz_row as $_r) {
+    if ($_r['setting_key']==='system_timezone'     && $_r['setting_value']) $_hrms_tz    = $_r['setting_value'];
+    if ($_r['setting_key']==='clock_delta_seconds')                          $_hrms_delta = (int)$_r['setting_value'];
+}
+try { date_default_timezone_set($_hrms_tz); } catch(Exception $e) { date_default_timezone_set('Asia/Manila'); }
+// ── END ──────────────────────────────────────────────────────────
+
 $error = ''; $success = '';
-$today = date('Y-m-d');
+$today = date('Y-m-d', time() + $_hrms_delta);
 $selected_date = isset($_GET['date']) ? $_GET['date'] : $today;
 
 // Save attendance
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 	csrf_verify();
     $emp_id  = (int)$_POST['employee_id'];
-    $a_date  = $conn->real_escape_string($_POST['attendance_date']);
-    $time_in = $conn->real_escape_string($_POST['time_in']);
-    $time_out= $conn->real_escape_string($_POST['time_out']);
-    $status  = $conn->real_escape_string($_POST['status']);
+    $a_date  = trim($_POST['attendance_date']);
+    $time_in = trim($_POST['time_in']);
+    $time_out= trim($_POST['time_out']);
+    $status  = trim($_POST['status']);
     $tardy   = (int)$_POST['tardiness_minutes'];
     $ot      = (float)$_POST['overtime_hours'];
-    $remarks = $conn->real_escape_string($_POST['remarks']);
+    $remarks = trim($_POST['remarks']);
 
-    // Upsert
-    $existing = $conn->query("SELECT id FROM attendance WHERE employee_id=$emp_id AND attendance_date='$a_date'")->fetch_assoc();
+    // Upsert using PDO
+    $existing = db_value($pdo, "SELECT id FROM attendance WHERE employee_id=? AND attendance_date=?", array($emp_id, $a_date));
     if ($existing) {
-        $conn->query("UPDATE attendance SET time_in='$time_in', time_out='$time_out', status='$status',
-            tardiness_minutes=$tardy, overtime_hours=$ot, remarks='$remarks'
-            WHERE employee_id=$emp_id AND attendance_date='$a_date'");
+        db_run($pdo,
+            "UPDATE attendance SET time_in=?, time_out=?, status=?, tardiness_minutes=?, overtime_hours=?, remarks=?
+             WHERE employee_id=? AND attendance_date=?",
+            array($time_in, $time_out, $status, $tardy, $ot, $remarks, $emp_id, $a_date)
+        );
         $success = "Attendance updated.";
     } else {
-        $conn->query("INSERT INTO attendance (employee_id, attendance_date, time_in, time_out, status, tardiness_minutes, overtime_hours, remarks)
-            VALUES ($emp_id, '$a_date', '$time_in', '$time_out', '$status', $tardy, $ot, '$remarks')");
-        //$success = "Attendance logged.";
-		prg_redirect('attendance.php?date=' . $a_date, 'Attendance logged.');
+        db_run($pdo,
+            "INSERT INTO attendance (employee_id, attendance_date, time_in, time_out, status, tardiness_minutes, overtime_hours, remarks)
+             VALUES (?,?,?,?,?,?,?,?)",
+            array($emp_id, $a_date, $time_in, $time_out, $status, $tardy, $ot, $remarks)
+        );
+        prg_redirect('attendance.php?date=' . $a_date, 'Attendance logged.');
     }
     $selected_date = $a_date;
 }
 
-$employees = $conn->query("SELECT id, full_name, employee_id FROM employees WHERE employment_status='Active' ORDER BY full_name");
+$employees = db_fetchall($pdo, "SELECT id, full_name, employee_id FROM employees WHERE employment_status='Active' ORDER BY full_name");
 
 // Attendance for selected date
-$att_list = $conn->query("
-    SELECT a.*, e.full_name, e.employee_id AS emp_code
-    FROM attendance a
-    JOIN employees e ON a.employee_id = e.id
-    WHERE a.attendance_date = '$selected_date'
-    ORDER BY e.full_name
-");
+$att_list = db_fetchall($pdo, "SELECT a.*, e.full_name, e.employee_id AS emp_code FROM attendance a JOIN employees e ON a.employee_id = e.id WHERE a.attendance_date = ? ORDER BY e.full_name", array($selected_date));
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -104,11 +112,11 @@ $att_list = $conn->query("
                   <label>Employee <span class="text-danger">*</span></label>
                   <select name="employee_id" class="form-control" required>
                     <option value="">Select...</option>
-                    <?php while ($e = $employees->fetch_assoc()): ?>
+                    <?php foreach ($employees as $e): ?>
                       <option value="<?= $e['id'] ?>">
                         <?= htmlspecialchars($e['full_name']) ?> (<?= $e['employee_id'] ?>)
                       </option>
-                    <?php endwhile; ?>
+                    <?php endforeach; ?>
                   </select>
                 </div>
                 <div class="form-group">
@@ -179,14 +187,16 @@ $att_list = $conn->query("
               <table class="table table-sm table-hover mb-0" id="attDailyTable">
                 <thead class="thead-light">
                   <tr>
-                    <th>Employee</th><th>Time in</th><th>Time out</th>
+                    <th>Employee</th>
+                    <th>AM In</th><th>AM Out</th>
+                    <th>PM In</th><th>PM Out</th>
                     <th>Status</th><th>Tardiness</th><th>Overtime</th><th>Remarks</th>
                   </tr>
                 </thead>
                 <tbody>
                   <?php
                   $att_count = 0;
-                  while ($a = $att_list->fetch_assoc()):
+                  foreach ($att_list as $a):
                     $att_count++;
                     $sc = array('Present'=>'success','Absent'=>'danger','Late'=>'warning',
                         'Half-day'=>'info','On leave'=>'primary','Holiday'=>'secondary','Rest day'=>'dark');
@@ -197,17 +207,19 @@ $att_list = $conn->query("
                       <strong><?= htmlspecialchars($a['full_name']) ?></strong><br>
                       <small class="text-muted"><?= htmlspecialchars($a['emp_code']) ?></small>
                     </td>
-                    <td><?= $a['time_in'] ? date('h:i A', strtotime($a['time_in'])) : '—' ?></td>
-                    <td><?= $a['time_out'] ? date('h:i A', strtotime($a['time_out'])) : '—' ?></td>
+                    <td><?= (!empty($a['time_in'])     && $a['time_in']    !=='00:00:00') ? date('h:i A',strtotime($a['time_in']))     : '—' ?></td>
+                    <td><?= (!empty($a['time_out'])    && $a['time_out']   !=='00:00:00') ? date('h:i A',strtotime($a['time_out']))    : '—' ?></td>
+                    <td><?= (!empty($a['pm_time_in'])  && $a['pm_time_in'] !=='00:00:00') ? date('h:i A',strtotime($a['pm_time_in']))  : '—' ?></td>
+                    <td><?= (!empty($a['pm_time_out']) && $a['pm_time_out']!=='00:00:00') ? date('h:i A',strtotime($a['pm_time_out'])) : '—' ?></td>
                     <td><span class="badge badge-<?= $sb ?>"><?= $a['status'] ?></span></td>
                     <td><?= $a['tardiness_minutes'] > 0 ? $a['tardiness_minutes'].' mins' : '—' ?></td>
                     <td><?= $a['overtime_hours'] > 0 ? $a['overtime_hours'].' hrs' : '—' ?></td>
                     <td><?= htmlspecialchars($a['remarks'] ? $a['remarks'] : '—') ?></td>
                   </tr>
-                  <?php endwhile; ?>
+                  <?php endforeach; ?>
                   <?php if ($att_count === 0): ?>
                   <tr>
-                    <td colspan="7" class="text-center text-muted py-3">
+                    <td colspan="9" class="text-center text-muted py-3">
                       No attendance records for this date yet.
                     </td>
                   </tr>

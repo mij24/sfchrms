@@ -8,6 +8,16 @@
 // ============================================
 require_once '../includes/db.php';
 
+// ── HRMS timezone + clock delta ─────────────────────────────────
+$_tz_row = $pdo->query("SELECT setting_key,setting_value FROM settings WHERE setting_key IN ('system_timezone','clock_delta_seconds')")->fetchAll(PDO::FETCH_ASSOC);
+$_hrms_tz = 'Asia/Manila'; $_hrms_delta = 0;
+foreach ($_tz_row as $_r) {
+    if ($_r['setting_key']==='system_timezone'    && $_r['setting_value']) $_hrms_tz    = $_r['setting_value'];
+    if ($_r['setting_key']==='clock_delta_seconds')                         $_hrms_delta = (int)$_r['setting_value'];
+}
+try { date_default_timezone_set($_hrms_tz); } catch(Exception $e) { date_default_timezone_set('Asia/Manila'); }
+// ── END HRMS time setup ──────────────────────────────────────────
+
 // kiosk has its own session namespace
 if (session_status() === PHP_SESSION_NONE) session_start();
 
@@ -17,8 +27,8 @@ $grace_mins  = (int)(db_value($pdo,"SELECT setting_value FROM settings WHERE set
 $message    = '';
 $msg_type   = 'info';
 $emp_found  = null;
-$today      = date('Y-m-d');
-$now_time   = date('H:i:s');
+$today      = date('Y-m-d', time()+$_hrms_delta);
+$now_time   = date('H:i:s', time()+$_hrms_delta);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action  = isset($_POST['action'])      ? $_POST['action']      : '';
@@ -64,8 +74,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     $msg_type = $status==='Late' ? 'warning' : 'success';
                     $message  = $status==='Late'
-                        ? "Good ".date('A').", {$emp['full_name']}! You are late by $tardy minute(s)."
-                        : "Good ".date('A').", {$emp['full_name']}! Time in recorded at ".date('h:i A').".";
+                        ? "Good ".date('A', time()+$_hrms_delta).", {$emp['full_name']}! You are late by $tardy minute(s)."
+                        : "Good ".date('A', time()+$_hrms_delta).", {$emp['full_name']}! Time in recorded at ".date('h:i A', time()+$_hrms_delta).".";
 
                     // Refresh emp record
                     $emp_found['time_in'] = $now_time;
@@ -90,7 +100,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         "UPDATE attendance SET time_out=?, overtime_hours=? WHERE id=?",
                         array($now_time, $ot_hours, $emp['att_id'])
                     );
-                    $message  = "Goodbye, {$emp['full_name']}! Time out recorded at ".date('h:i A').".";
+                    $message  = "Goodbye, {$emp['full_name']}! Time out recorded at ".date('h:i A', time()+$_hrms_delta).".";
                     if ($ot_hours > 0) $message .= " Overtime: {$ot_hours}h.";
                     $msg_type = 'success';
                     $emp_found['time_out'] = $now_time;
@@ -155,8 +165,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 <div class="kiosk-header">
   <h1>SFC|<span style="color:#fff;">HRMS</span></h1>
-  <div class="time-display" id="kiosk-time"><?= date('h:i:s A') ?></div>
-  <div class="date-display"><?= date('l, F d, Y') ?></div>
+  <div class="time-display" id="kiosk-time"><?= date('h:i:s A', time()+$_hrms_delta) ?></div>
+  <div class="date-display"><?= date('l, F d, Y', time()+$_hrms_delta) ?></div>
 </div>
 
 <div class="kiosk-card">
@@ -209,9 +219,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </div>
 
 <script>
-// Live clock
+// Live clock — HRMS adjusted time
+var _hrms_ms = <?= (int)$_hrms_delta ?> * 1000;
 function updateClock() {
-    var now = new Date();
+    var now = new Date(Date.now() + _hrms_ms);
     var h = now.getHours(); var m = now.getMinutes(); var s = now.getSeconds();
     var ampm = h >= 12 ? 'PM' : 'AM';
     h = h % 12 || 12;
@@ -220,6 +231,7 @@ function updateClock() {
 }
 function pad(n) { return n < 10 ? '0'+n : n; }
 setInterval(updateClock, 1000);
+updateClock();
 
 // Numpad
 function numpadPress(val) {

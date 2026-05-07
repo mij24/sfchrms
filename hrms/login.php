@@ -15,7 +15,24 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 if (isset($_SESSION['user_id'])) {
-    header('Location: pages/dashboard.php');
+    $r = isset($_SESSION['role']) ? $_SESSION['role'] : 'employee';
+    $rd = array(
+        'dept_secretary'    => 'pages/dept_secretary_dashboard.php',
+        'exec_secretary'    => 'pages/exec_secretary_dashboard.php',
+        'manager'           => 'pages/academic_head_dashboard.php',
+        'academic_head'     => 'pages/academic_head_dashboard.php',
+        'non_academic_head' => 'pages/non_academic_head_dashboard.php',
+        'registrar_head'    => 'pages/registrar_head_dashboard.php',
+        'vp_academic'       => 'pages/vp_academic_dashboard.php',
+        'vp_admin'          => 'pages/vp_admin_dashboard.php',
+        'president'         => 'pages/president_dashboard.php',
+        'board_director'    => 'pages/board_director_dashboard.php',
+        'clinic_head'       => 'pages/clinic_head_dashboard.php',
+        'clinic_staff'      => 'pages/clinic_staff_dashboard.php',
+        'employee'          => 'pages/employee_dashboard.php',
+    );
+    $dest = isset($rd[$r]) ? $rd[$r] : 'pages/dashboard.php';
+    header('Location: ' . $dest);
     exit;
 }
 
@@ -84,8 +101,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             log_login_attempt($pdo, $username, $ip, true, 'SUCCESS');
 
-            header('Location: pages/dashboard.php');
-            exit;
+            $r = $user['role'];
+            $rd = array(
+        'dept_secretary'    => 'pages/dept_secretary_dashboard.php',
+        'exec_secretary'    => 'pages/exec_secretary_dashboard.php',
+        'manager'           => 'pages/academic_head_dashboard.php',
+        'academic_head'     => 'pages/academic_head_dashboard.php',
+        'non_academic_head' => 'pages/non_academic_head_dashboard.php',
+        'registrar_head'    => 'pages/registrar_head_dashboard.php',
+        'vp_academic'       => 'pages/vp_academic_dashboard.php',
+        'vp_admin'          => 'pages/vp_admin_dashboard.php',
+        'president'         => 'pages/president_dashboard.php',
+        'board_director'    => 'pages/board_director_dashboard.php',
+        'clinic_head'       => 'pages/clinic_head_dashboard.php',
+        'clinic_staff'      => 'pages/clinic_staff_dashboard.php',
+        'employee'          => 'pages/employee_dashboard.php',
+            );
+            $dest = isset($rd[$r]) ? $rd[$r] : 'pages/dashboard.php';
+    header('Location: ' . $dest);
+    exit;
 
         } else {
             // Failed — log attempt

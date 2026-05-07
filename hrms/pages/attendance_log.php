@@ -134,11 +134,11 @@ $stat_badge = array('Present'=>'success','Absent'=>'danger','Late'=>'warning',
     <div class="row mb-3">
       <?php
       $cards = array(
-        array('Present',         (int)$summary['present'],                   'success'),
-        array('Absent',          (int)$summary['absent'],                    'danger'),
-        array('Late',            (int)$summary['late'],                      'warning'),
-        array('Tardiness (mins)',(int)$summary['tardiness'],                 'info'),
-        array('Overtime (hrs)',  number_format((float)$summary['overtime'],2),'primary'),
+        array('Present',         (int)(isset($summary['present'])  ? $summary['present']  : 0), 'success'),
+        array('Absent',          (int)(isset($summary['absent'])   ? $summary['absent']   : 0), 'danger'),
+        array('Late',            (int)(isset($summary['late'])     ? $summary['late']     : 0), 'warning'),
+        array('Tardiness (mins)',(int)(isset($summary['tardiness'])? $summary['tardiness']: 0), 'info'),
+        array('Overtime (hrs)',  number_format((float)(isset($summary['overtime']) ? $summary['overtime'] : 0),2), 'primary'),
       );
       foreach ($cards as $card):
       ?>
@@ -162,19 +162,22 @@ $stat_badge = array('Present'=>'success','Absent'=>'danger','Late'=>'warning',
         </h3>
       </div>
       <div class="card-body p-0">
-        <table class="table table-sm table-bordered table-hover mb-0" id="logTable">
+        <table class="table table-sm table-bordered table-hover dt-export mb-0" id="logTable">
           <thead class="thead-light">
             <tr>
               <th>Date</th><th>Employee</th><th>Department</th>
-              <th>Time in</th><th>Time out</th><th>Status</th>
-              <th>Tardiness</th><th>Overtime</th><th>Remarks</th>
+              <th>AM In</th><th>AM Out</th>
+              <th>PM In</th><th>PM Out</th>
+              <th>Status</th><th>Tardiness</th><th>Overtime</th><th>Remarks</th>
             </tr>
           </thead>
           <tbody>
             <?php foreach ($logs as $row):
-              $sb = isset($stat_badge[$row['status']]) ? $stat_badge[$row['status']] : 'secondary';
-              $ti = ($row['time_in']  && $row['time_in']  !== '00:00:00') ? date('h:i A', strtotime($row['time_in']))  : '—';
-              $to = ($row['time_out'] && $row['time_out'] !== '00:00:00') ? date('h:i A', strtotime($row['time_out'])) : '—';
+              $sb  = isset($stat_badge[$row['status']]) ? $stat_badge[$row['status']] : 'secondary';
+              $ti  = (!empty($row['time_in'])     && $row['time_in']     !== '00:00:00') ? date('h:i A', strtotime($row['time_in']))     : '—';
+              $to  = (!empty($row['time_out'])    && $row['time_out']    !== '00:00:00') ? date('h:i A', strtotime($row['time_out']))    : '—';
+              $pmi = (!empty($row['pm_time_in'])  && $row['pm_time_in']  !== '00:00:00') ? date('h:i A', strtotime($row['pm_time_in']))  : '—';
+              $pmo = (!empty($row['pm_time_out']) && $row['pm_time_out'] !== '00:00:00') ? date('h:i A', strtotime($row['pm_time_out'])) : '—';
             ?>
             <tr>
               <td><?= date('M d, Y', strtotime($row['attendance_date'])) ?></td>
@@ -187,6 +190,8 @@ $stat_badge = array('Present'=>'success','Absent'=>'danger','Late'=>'warning',
               <td><?= htmlspecialchars($row['dept_name'] ? $row['dept_name'] : '—') ?></td>
               <td><?= $ti ?></td>
               <td><?= $to ?></td>
+              <td><?= $pmi ?></td>
+              <td><?= $pmo ?></td>
               <td><span class="badge badge-<?= $sb ?>"><?= $row['status'] ?></span></td>
               <td><?= $row['tardiness_minutes'] > 0 ? $row['tardiness_minutes'].' mins' : '—' ?></td>
               <td><?= $row['overtime_hours'] > 0 ? $row['overtime_hours'].' hrs' : '—' ?></td>
@@ -201,25 +206,4 @@ $stat_badge = array('Present'=>'success','Absent'=>'danger','Late'=>'warning',
   </div></div>
 </div>
 <?php include '../includes/footer.php'; ?>
-<script src="../assets/plugins/datatables/jquery.dataTables.min.js"></script>
-<script src="../assets/plugins/datatables-bs4/js/dataTables.bootstrap4.min.js"></script>
-<script src="../assets/plugins/datatables-buttons/js/dataTables.buttons.min.js"></script>
-<script src="../assets/plugins/datatables-buttons/js/buttons.bootstrap4.min.js"></script>
-<script src="../assets/plugins/datatables-buttons/js/buttons.html5.min.js"></script>
-<script src="../assets/plugins/datatables-buttons/js/buttons.print.min.js"></script>
-<script src="../assets/plugins/jszip/jszip.min.js"></script>
-<script>
-$(function(){
-    $('#logTable').DataTable({
-        pageLength: 25,
-        order: [[0,'desc']],
-        dom: 'Bfrtip',
-        buttons: [
-            { extend:'excelHtml5', text:'<i class="fas fa-file-excel mr-1"></i> Excel', className:'btn btn-success btn-sm' },
-            { extend:'csvHtml5',   text:'<i class="fas fa-file-csv mr-1"></i> CSV',   className:'btn btn-info btn-sm' },
-            { extend:'print',      text:'<i class="fas fa-print mr-1"></i> Print',    className:'btn btn-secondary btn-sm' }
-        ]
-    });
-});
-</script>
 </body></html>

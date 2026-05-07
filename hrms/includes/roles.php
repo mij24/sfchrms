@@ -7,26 +7,36 @@
 // ============================================
 
 define('ROLE_EMPLOYEE',         1);
-define('ROLE_MANAGER',          2);
-define('ROLE_HR',               3);
-define('ROLE_CLINIC_STAFF',     3); // same level as HR — can process sick leave
-define('ROLE_NON_ACADEMIC_HEAD',4);
-define('ROLE_ACADEMIC_HEAD',    4);
-define('ROLE_CLINIC_HEAD',      4); // approves sick leave at clinic level
-define('ROLE_PRESIDENT',        5);
-define('ROLE_BOARD_DIRECTOR',   5);
-define('ROLE_HR_HEAD',          6);
-define('ROLE_ADMIN',            7);
-define('ROLE_SUPERADMIN',       8);
+define('ROLE_DEPT_SECRETARY',   2); // Department Secretary — endorses requests, creates teaching loads
+define('ROLE_MANAGER',          3); // Dept Head, Dean, Principal, Area Chairman
+define('ROLE_HR',               4);
+define('ROLE_CLINIC_STAFF',     4); // same level as HR — can process sick leave
+define('ROLE_NON_ACADEMIC_HEAD',5);
+define('ROLE_ACADEMIC_HEAD',    5);
+define('ROLE_CLINIC_HEAD',      5); // approves sick leave at clinic level
+define('ROLE_PRESIDENT',        6);
+define('ROLE_BOARD_DIRECTOR',   6);
+define('ROLE_VP_ACADEMIC',      5); // VP for Academic Affairs
+define('ROLE_VP_ADMIN',         5); // VP for Administration
+define('ROLE_REGISTRAR_HEAD',   3); // Head Registrar
+define('ROLE_EXEC_SECRETARY',   2); // Executive Secretary
+define('ROLE_HR_HEAD',          7);
+define('ROLE_ADMIN',            8);
+define('ROLE_SUPERADMIN',       9);
 
 $ROLE_LEVELS = array(
     'employee'          => ROLE_EMPLOYEE,
+    'dept_secretary'    => ROLE_DEPT_SECRETARY,
     'manager'           => ROLE_MANAGER,
     'hr'                => ROLE_HR,
     'clinic_staff'      => ROLE_CLINIC_STAFF,
     'non_academic_head' => ROLE_NON_ACADEMIC_HEAD,
-    'academic_head'     => ROLE_ACADEMIC_HEAD,
-    'clinic_head'       => ROLE_CLINIC_HEAD,
+    'academic_head'      => ROLE_ACADEMIC_HEAD,
+    'vp_academic'        => ROLE_VP_ACADEMIC,
+    'vp_admin'           => ROLE_VP_ADMIN,
+    'exec_secretary'     => ROLE_EXEC_SECRETARY,
+    'registrar_head'     => ROLE_REGISTRAR_HEAD,
+    'clinic_head'        => ROLE_CLINIC_HEAD,
     'president'         => ROLE_PRESIDENT,
     'board_director'    => ROLE_BOARD_DIRECTOR,
     'hr_head'           => ROLE_HR_HEAD,
@@ -40,10 +50,15 @@ $ROLE_LABELS = array(
     'hr_head'           => 'HR Head',
     'board_director'    => 'Board of Directors',
     'president'         => 'President',
-    'academic_head'     => 'Academic Head',
+    'academic_head'     => 'Academic Head (Dean / Principal)',
+    'vp_academic'       => 'VP for Academic Affairs',
+    'vp_admin'          => 'VP for Administration',
+    'exec_secretary'    => 'Executive Secretary',
+    'registrar_head'    => 'Head Registrar',
     'non_academic_head' => 'Non-Academic Head',
     'clinic_head'       => 'Clinic Head',
     'manager'           => 'Manager',
+    'dept_secretary'    => 'Department Secretary',
     'hr'                => 'HR Staff',
     'clinic_staff'      => 'Clinic Staff',
     'employee'          => 'Employee',
@@ -57,8 +72,13 @@ $ROLE_COLORS = array(
     'president'         => 'dark',
     'academic_head'     => 'info',
     'non_academic_head' => 'info',
+    'vp_academic'       => 'primary',
+    'vp_admin'          => 'primary',
+    'exec_secretary'    => 'secondary',
+    'registrar_head'    => 'warning',
     'clinic_head'       => 'success',
     'manager'           => 'warning',
+    'dept_secretary'    => 'info',
     'hr'                => 'secondary',
     'clinic_staff'      => 'success',
     'employee'          => 'light',
@@ -123,6 +143,36 @@ $PAGE_ROLES = array(
     'my_payslips.php'            => ROLE_EMPLOYEE,
     'my_leave.php'               => ROLE_EMPLOYEE,
     'my_attendance.php'          => ROLE_EMPLOYEE,
+    'dept_secretary_dashboard.php' => ROLE_DEPT_SECRETARY,
+    'teaching_load.php'           => ROLE_DEPT_SECRETARY,
+    'teaching_load_modal.php'      => ROLE_EMPLOYEE,
+
+    // ── Role-specific dashboards ─────────────────────────────
+    'registrar_head_dashboard.php'  => ROLE_MANAGER,
+    'non_academic_head_dashboard.php'=> ROLE_MANAGER,
+    'vp_academic_dashboard.php'     => ROLE_ACADEMIC_HEAD,
+    'vp_admin_dashboard.php'        => ROLE_ACADEMIC_HEAD,
+    'president_dashboard.php'       => ROLE_PRESIDENT,
+    'board_director_dashboard.php'  => ROLE_PRESIDENT,
+    'clinic_head_dashboard.php'     => ROLE_CLINIC_HEAD,
+    'clinic_staff_dashboard.php'    => ROLE_CLINIC_STAFF,
+    'employee_dashboard.php'       => ROLE_EMPLOYEE,
+    'exec_dashboard.php'           => ROLE_ACADEMIC_HEAD,
+    'academic_head_dashboard.php'  => ROLE_MANAGER,
+    'exec_secretary_dashboard.php' => ROLE_DEPT_SECRETARY,
+    'exec_secretary_logbook.php'   => ROLE_DEPT_SECRETARY,
+
+    // ── Self-service (all employees) ────────────────────────
+    'my_inbox.php'                 => ROLE_EMPLOYEE,
+    'my_schedule.php'              => ROLE_EMPLOYEE,
+    'my_requests.php'              => ROLE_EMPLOYEE,
+    'my_requests_page.php'         => ROLE_EMPLOYEE,
+    'my_approvals.php'             => ROLE_EMPLOYEE,
+    'my_requests_history.php'      => ROLE_EMPLOYEE,
+    'request_detail.php'           => ROLE_EMPLOYEE,
+    'employee_requests.php'        => ROLE_EMPLOYEE,
+    'attendance_selfservice.php'   => ROLE_EMPLOYEE,
+    'qr_scanner.php'               => ROLE_EMPLOYEE,
 
     // ── SETTINGS — what HR Head can access ──
     'hr_setup.php'               => ROLE_HR_HEAD,   // Classifications, Ranks, Types, Statuses
@@ -150,7 +200,14 @@ function is_admin()      { return get_user_level() >= ROLE_ADMIN; }
 function is_hr_head()    { return get_user_level() >= ROLE_HR_HEAD; }
 function is_hr()         { return get_user_level() >= ROLE_HR; }
 function is_clinic_head(){ return get_user_level() >= ROLE_CLINIC_HEAD; }
-function is_manager()    { return get_user_level() >= ROLE_MANAGER; }
+function is_manager()       { return get_user_level() >= ROLE_MANAGER; }
+function is_exec_secretary(){ return isset($_SESSION['role']) && $_SESSION['role']==='exec_secretary'; }
+function is_registrar_head(){ return isset($_SESSION['role']) && $_SESSION['role']==='registrar_head'; }
+function is_vp_academic()   { return isset($_SESSION['role']) && $_SESSION['role']==='vp_academic'; }
+function is_vp_admin()      { return isset($_SESSION['role']) && $_SESSION['role']==='vp_admin'; }
+function is_vp()            { return in_array(isset($_SESSION['role'])?$_SESSION['role']:'', array('vp_academic','vp_admin')); }
+function is_dept_head()     { return in_array(isset($_SESSION['role'])?$_SESSION['role']:'', array('manager','academic_head','non_academic_head','registrar_head')); }
+function is_secretary()  { return get_user_level() >= ROLE_DEPT_SECRETARY; }
 function is_employee()   { return get_user_level() >= ROLE_EMPLOYEE; }
 function has_role($min)  { return get_user_level() >= $min; }
 
@@ -162,7 +219,7 @@ function enforce_page_role() {
     if (is_superadmin()) return;
 
     $page     = basename($_SERVER['PHP_SELF']);
-    $required = isset($PAGE_ROLES[$page]) ? $PAGE_ROLES[$page] : ROLE_HR;
+    $required = isset($PAGE_ROLES[$page]) ? $PAGE_ROLES[$page] : ROLE_EMPLOYEE;
 
     if (get_user_level() < $required) {
         http_response_code(403);
@@ -233,16 +290,19 @@ function not_linked_error() {
 // ── Roles HR Head can create ──────────────────────────────────────
 function creatable_roles() {
     if (is_superadmin()) {
-        return array('admin','hr_head','board_director','president','academic_head',
-                     'non_academic_head','clinic_head','clinic_staff','manager','hr','employee');
+        return array('admin','hr_head','board_director','president',
+                     'vp_academic','vp_admin','academic_head','non_academic_head',
+                     'registrar_head','exec_secretary','clinic_head','clinic_staff',
+                     'manager','dept_secretary','hr','employee');
     }
     if (is_admin()) {
         return array('hr_head','board_director','president','academic_head',
-                     'non_academic_head','clinic_head','clinic_staff','manager','hr','employee');
+                     'non_academic_head','clinic_head','clinic_staff','manager',
+                     'dept_secretary','hr','employee');
     }
     if (is_hr_head()) {
         return array('board_director','president','academic_head','non_academic_head',
-                     'clinic_head','clinic_staff','manager','hr','employee');
+                     'clinic_head','clinic_staff','manager','dept_secretary','hr','employee');
     }
     return array();
 }

@@ -103,6 +103,9 @@ $stat_badge = array(
               <option <?= $y===$year?'selected':'' ?>><?= $y ?></option>
             <?php endfor; ?>
           </select>
+          <a href="attendance_selfservice.php" class="btn btn-sm btn-success ml-auto">
+            <i class="fas fa-clock mr-1"></i> Clock In / Out
+          </a>
         </form>
       </div>
     </div>
@@ -111,12 +114,12 @@ $stat_badge = array(
     <div class="row mb-3">
       <?php
       $cards = array(
-        array('Present',          (int)($summary['present']??0),                  'success'),
-        array('Absent',           (int)($summary['absent']??0),                   'danger'),
-        array('Late',             (int)($summary['late']??0),                     'warning'),
-        array('Half-day',         (int)($summary['halfday']??0),                  'info'),
-        array('Tardiness (mins)', (int)($summary['total_tardiness']??0),          'secondary'),
-        array('Overtime (hrs)',   number_format((float)($summary['total_overtime']??0),2),'primary'),
+        array('Present',          (int)(isset($summary['present'])         ? $summary['present']         : 0),                  'success'),
+        array('Absent',           (int)(isset($summary['absent'])          ? $summary['absent']          : 0),                   'danger'),
+        array('Late',             (int)(isset($summary['late'])            ? $summary['late']            : 0),                     'warning'),
+        array('Half-day',         (int)(isset($summary['halfday'])         ? $summary['halfday']         : 0),                  'info'),
+        array('Tardiness (mins)', (int)(isset($summary['total_tardiness']) ? $summary['total_tardiness'] : 0),          'secondary'),
+        array('Overtime (hrs)',   number_format((float)(isset($summary['total_overtime'])? $summary['total_overtime']  : 0),2),'primary'),
       );
       foreach ($cards as $c):
       ?>
@@ -202,24 +205,30 @@ $stat_badge = array(
     <div class="card">
       <div class="card-header"><h3 class="card-title">Daily detail</h3></div>
       <div class="card-body" style="padding:16px 20px 0;">
-        <table class="table table-sm table-bordered table-hover dt-export" id="attTable">
+        <table class="table table-sm table-bordered table-hover" id="attTable">
           <thead class="thead-light">
             <tr>
-              <th>Date</th><th>Day</th><th>Time in</th><th>Time out</th>
+              <th>Date</th><th>Day</th>
+              <th>AM In</th><th>AM Out</th>
+              <th>PM In</th><th>PM Out</th>
               <th>Status</th><th>Tardiness</th><th>Overtime</th><th>Remarks</th>
             </tr>
           </thead>
           <tbody>
             <?php foreach ($records as $r):
-              $sb = isset($stat_badge[$r['status']]) ? $stat_badge[$r['status']] : 'secondary';
-              $ti = ($r['time_in']  && $r['time_in']  !=='00:00:00') ? date('h:i A',strtotime($r['time_in']))  : '—';
-              $to = ($r['time_out'] && $r['time_out'] !=='00:00:00') ? date('h:i A',strtotime($r['time_out'])) : '—';
+              $sb  = isset($stat_badge[$r['status']]) ? $stat_badge[$r['status']] : 'secondary';
+              $ti  = (!empty($r['time_in'])     && $r['time_in']     !=='00:00:00') ? date('h:i A',strtotime($r['time_in']))     : '—';
+              $to  = (!empty($r['time_out'])    && $r['time_out']    !=='00:00:00') ? date('h:i A',strtotime($r['time_out']))    : '—';
+              $pmi = (!empty($r['pm_time_in'])  && $r['pm_time_in']  !=='00:00:00') ? date('h:i A',strtotime($r['pm_time_in']))  : '—';
+              $pmo = (!empty($r['pm_time_out']) && $r['pm_time_out'] !=='00:00:00') ? date('h:i A',strtotime($r['pm_time_out'])) : '—';
             ?>
             <tr>
               <td><?= date('M d, Y', strtotime($r['attendance_date'])) ?></td>
               <td><?= date('l', strtotime($r['attendance_date'])) ?></td>
               <td><?= $ti ?></td>
               <td><?= $to ?></td>
+              <td><?= $pmi ?></td>
+              <td><?= $pmo ?></td>
               <td><span class="badge badge-<?= $sb ?>"><?= $r['status'] ?></span></td>
               <td><?= $r['tardiness_minutes']>0 ? $r['tardiness_minutes'].' mins' : '—' ?></td>
               <td><?= $r['overtime_hours']>0    ? $r['overtime_hours'].' hrs'   : '—' ?></td>
@@ -227,7 +236,7 @@ $stat_badge = array(
             </tr>
             <?php endforeach; ?>
             <?php if (empty($records)): ?>
-              <tr><td colspan="8" class="text-center text-muted py-3">No attendance records for this period.</td></tr>
+              <tr><td colspan="10" class="text-center text-muted py-3">No attendance records for this period.</td></tr>
             <?php endif; ?>
           </tbody>
         </table>

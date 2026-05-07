@@ -52,15 +52,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $acc_type = clean_string($_POST['account_type']); // 'permanent' or 'temporary'
     $allowed  = creatable_roles();
 
-    if (!in_array($role, $allowed)) {
-        prg_redirect_error('users.php','You cannot create that role.');
+    global $ROLE_LEVELS;
+    if (!isset($ROLE_LEVELS[$role])) {
+        prg_redirect_error('users.php','Invalid role selected.');
+    }
+    if (!is_admin() && isset($ROLE_LEVELS[$role]) && $ROLE_LEVELS[$role] > get_user_level()) {
+        prg_redirect_error('users.php','You cannot assign a role higher than your own.');
     }
     if (db_value($pdo,"SELECT COUNT(*) FROM users WHERE username=?",array($username))) {
         prg_redirect_error('users.php',"Username '$username' already taken.");
     }
 
-    $emp_id_val = $emp_id > 0 ? $emp_id : null;
-    $creator    = (int)$_SESSION['user_id'];
+    $emp_id_val    = $emp_id > 0 ? $emp_id : null;
+    $creator       = (int)$_SESSION['user_id'];
+    $assigned_office = ($role === 'exec_secretary') ? clean_string(isset($_POST['assigned_office']) ? $_POST['assigned_office'] : '') : null;
 
     if ($acc_type === 'temporary') {
         // ── Generate raw password (plain text) ──
@@ -73,9 +78,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         db_run($pdo,
             "INSERT INTO users
              (username, password, temp_password_plain, role, employee_id,
-              account_status, must_change_password, is_active, created_by)
-             VALUES (?, ?, ?, ?, ?, 'Temporary', 1, 1, ?)",
-            array($username, $hashed, $raw_temp, $role, $emp_id_val, $creator)
+              account_status, must_change_password, is_active, created_by, assigned_office)
+             VALUES (?, ?, ?, ?, ?, 'Temporary', 1, 1, ?, ?)",
+            array($username, $hashed, $raw_temp, $role, $emp_id_val, $creator, $assigned_office)
         );
 
         // ── Show the PLAIN password to HR (only time it's visible) ──
@@ -96,9 +101,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         db_run($pdo,
             "INSERT INTO users
              (username, password, role, employee_id,
-              account_status, is_active, created_by)
-             VALUES (?, ?, ?, ?, 'Active', 1, ?)",
-            array($username, $hashed, $role, $emp_id_val, $creator)
+              account_status, is_active, created_by, assigned_office)
+             VALUES (?, ?, ?, ?, 'Active', 1, ?, ?)",
+            array($username, $hashed, $role, $emp_id_val, $creator, $assigned_office)
         );
     }
 
@@ -114,19 +119,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $role     = clean_string($_POST['role']);
         $emp_id   = clean_int($_POST['employee_id']);
 
-        if (!in_array($role, $allowed)) {
-            prg_redirect_error('users.php','You cannot assign that role.');
+        global $ROLE_LEVELS;
+        if (!isset($ROLE_LEVELS[$role])) {
+            prg_redirect_error('users.php','Invalid role selected.');
         }
+        if (!is_admin() && isset($ROLE_LEVELS[$role]) && $ROLE_LEVELS[$role] > get_user_level()) {
+            prg_redirect_error('users.php','You cannot assign a role higher than your own.');
+        }
+        $assigned_office = ($role === 'exec_secretary') ? clean_string(isset($_POST['assigned_office']) ? $_POST['assigned_office'] : '') : null;
+
         if (!empty($_POST['password'])) {
             $hashed = password_hash($_POST['password'], PASSWORD_DEFAULT);
             db_run($pdo,
-                "UPDATE users SET username=?,password=?,role=?,employee_id=? WHERE id=?",
-                array($username,$hashed,$role,$emp_id>0?$emp_id:null,$uid)
+                "UPDATE users SET username=?,password=?,role=?,employee_id=?,assigned_office=? WHERE id=?",
+                array($username,$hashed,$role,$emp_id>0?$emp_id:null,$assigned_office,$uid)
             );
         } else {
             db_run($pdo,
-                "UPDATE users SET username=?,role=?,employee_id=? WHERE id=?",
-                array($username,$role,$emp_id>0?$emp_id:null,$uid)
+                "UPDATE users SET username=?,role=?,employee_id=?,assigned_office=? WHERE id=?",
+                array($username,$role,$emp_id>0?$emp_id:null,$assigned_office,$uid)
             );
         }
         prg_redirect('users.php','User updated.');
@@ -205,7 +216,7 @@ if (!empty($_SESSION['flash_temp_pw'])) {
         <table class="table table-sm table-bordered table-hover" id="userTable">
           <thead class="thead-light">
             <tr>
-              <th>Username</th><th>Role</th><th>Linked employee</th>
+              <th>Username</th><th>Role</th><th>Office</th><th>Linked employee</th>
               <th>Active</th><th>Account status</th><th>Created by</th>
               <th>Last login</th><th style="min-width:130px;">Actions</th>
             </tr>
@@ -220,6 +231,11 @@ if (!empty($_SESSION['flash_temp_pw'])) {
             <tr>
               <td><strong><?= htmlspecialchars($u['username']) ?></strong></td>
               <td><span class="badge badge-<?= $rc ?>"><?= $rl ?></span></td>
+              <td style="font-size:12px;">
+                <?php if (!empty($u['assigned_office'])): ?>
+                  <span class="badge badge-dark" style="font-size:10px;"><?= htmlspecialchars($u['assigned_office']) ?></span>
+                <?php else: ?>—<?php endif; ?>
+              </td>
               <td>
                 <?= $u['emp_name'] ? htmlspecialchars($u['emp_name']).'<br><small class="text-muted">'.htmlspecialchars($u['emp_code']).'</small>' : '—' ?>
               </td>
@@ -243,6 +259,7 @@ if (!empty($_SESSION['flash_temp_pw'])) {
                         data-username="<?= htmlspecialchars($u['username']) ?>"
                         data-role="<?= htmlspecialchars($u['role']) ?>"
                         data-empid="<?= (int)$u['employee_id'] ?>"
+                        data-office="<?= htmlspecialchars($u['assigned_office'] ?? '') ?>"
                         data-toggle="modal" data-target="#editModal"
                         title="Edit">
                   <i class="fas fa-edit"></i>
@@ -288,12 +305,29 @@ if (!empty($_SESSION['flash_temp_pw'])) {
               <input type="text" name="username" class="form-control" required autocomplete="off">
             </div>
             <div class="form-group"><label>Role <span class="text-danger">*</span></label>
-              <select name="role" class="form-control" id="createRole" required>
+              <select name="role" class="form-control" id="createRole" required
+                      onchange="toggleOfficeField(this.value)">
                 <option value="">Select role...</option>
-                <?php foreach ($allowed_roles as $r): ?>
-                  <option value="<?= $r ?>"><?= isset($ROLE_LABELS[$r])?$ROLE_LABELS[$r]:$r ?></option>
+                <?php
+                global $ROLE_LABELS, $ROLE_LEVELS;
+                foreach ($ROLE_LABELS as $rkey => $rlabel):
+                    if (!is_admin() && isset($ROLE_LEVELS[$rkey]) && $ROLE_LEVELS[$rkey] > get_user_level()) continue;
+                ?>
+                  <option value="<?= $rkey ?>"><?= htmlspecialchars($rlabel) ?></option>
                 <?php endforeach; ?>
               </select>
+              <!-- Assigned Office (only for exec_secretary) -->
+              <div id="officeField" style="display:none;margin-top:8px;">
+                <label style="font-size:12px;">Assigned Executive Office <span class="text-danger">*</span></label>
+                <select name="assigned_office" class="form-control form-control-sm">
+                  <option value="">Select office...</option>
+                  <option value="VP Academic">VP for Academic Affairs</option>
+                  <option value="VP Administration">VP for Administration</option>
+                  <option value="President">President's Office</option>
+                  <option value="Board">Board of Trustees</option>
+                </select>
+                <small class="text-muted">This determines which executive office logbook they manage.</small>
+              </div>
             </div>
             <div class="form-group"><label>Link to employee (optional)</label>
               <select name="employee_id" class="form-control">
@@ -349,11 +383,27 @@ if (!empty($_SESSION['flash_temp_pw'])) {
           <input type="text" name="username" id="edit_username" class="form-control" required>
         </div>
         <div class="form-group"><label>Role</label>
-          <select name="role" id="edit_role" class="form-control">
-            <?php foreach ($allowed_roles as $r): ?>
-              <option value="<?= $r ?>"><?= isset($ROLE_LABELS[$r])?$ROLE_LABELS[$r]:$r ?></option>
+          <select name="role" id="edit_role" class="form-control"
+                  onchange="toggleOfficeFieldEdit(this.value)">
+            <?php
+            global $ROLE_LABELS, $ROLE_LEVELS;
+            foreach ($ROLE_LABELS as $rkey => $rlabel):
+                if (!is_admin() && isset($ROLE_LEVELS[$rkey]) && $ROLE_LEVELS[$rkey] > get_user_level()) continue;
+            ?>
+              <option value="<?= $rkey ?>"><?= htmlspecialchars($rlabel) ?></option>
             <?php endforeach; ?>
           </select>
+          <!-- Assigned Office for exec_secretary -->
+          <div id="officeFieldEdit" style="display:none;margin-top:8px;">
+            <label style="font-size:12px;">Assigned Executive Office</label>
+            <select name="assigned_office" id="edit_office" class="form-control form-control-sm">
+              <option value="">Select office...</option>
+              <option value="VP Academic">VP for Academic Affairs</option>
+              <option value="VP Administration">VP for Administration</option>
+              <option value="President">President's Office</option>
+              <option value="Board">Board of Trustees</option>
+            </select>
+          </div>
         </div>
         <div class="form-group"><label>Link to employee</label>
           <select name="employee_id" id="edit_empid" class="form-control">
@@ -426,6 +476,9 @@ $(function(){
         $('#edit_username').val(b.data('username'));
         $('#edit_role').val(b.data('role'));
         $('#edit_empid').val(b.data('empid') || 0);
+        var office = b.data('office') || '';
+        $('#edit_office').val(office);
+        toggleOfficeFieldEdit(b.data('role'));
     });
 });
 
@@ -439,6 +492,16 @@ function togglePwField(val) {
         $('#tempNote').addClass('d-none');
         $('#pwInput').attr('required','required');
     }
+}
+
+function toggleOfficeField(role) {
+    document.getElementById('officeField').style.display =
+        (role === 'exec_secretary') ? 'block' : 'none';
+}
+
+function toggleOfficeFieldEdit(role) {
+    var el = document.getElementById('officeFieldEdit');
+    if (el) el.style.display = (role === 'exec_secretary') ? 'block' : 'none';
 }
 </script>
 </body></html>

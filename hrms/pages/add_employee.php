@@ -1,8 +1,7 @@
 <?php
 // ============================================
-// FILE: pages/add_employee.php — v3 FIXED
-// Fixed: duplicate employment_status column in INSERT
-// Fixed: PDO error display for debugging
+// FILE: pages/add_employee.php — UPDATED
+// Work Location & Salary Grade now dropdowns
 // ============================================
 require_once '../includes/db.php';
 require_once '../includes/auth.php';
@@ -28,7 +27,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $pagibig           = trim($_POST['pagibig_number']);
     $tin               = trim($_POST['tin_number']);
 
-    // FK-safe: convert 0 to null
     $dept_id           = (int)$_POST['department_id']        > 0 ? (int)$_POST['department_id']        : null;
     $pos_id            = (int)$_POST['position_id']          > 0 ? (int)$_POST['position_id']          : null;
     $supervisor_id     = (int)$_POST['supervisor_id']        > 0 ? (int)$_POST['supervisor_id']        : null;
@@ -37,27 +35,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $emp_type_id       = (int)$_POST['employment_type_id']  > 0 ? (int)$_POST['employment_type_id']  : null;
     $emp_status_id     = (int)$_POST['employment_status_id'] > 0 ? (int)$_POST['employment_status_id'] : null;
 
-    // Text versions for backward compatibility columns
+    // Work Location & Salary Grade — get text from selected option
+    $work_location_id  = (int)$_POST['work_location_id'] > 0 ? (int)$_POST['work_location_id'] : null;
+    $salary_grade_id   = (int)$_POST['salary_grade_id']  > 0 ? (int)$_POST['salary_grade_id']  : null;
+
+    // Resolve text values for backward-compat columns
+    $location_text = '';
+    if ($work_location_id) {
+        $wl = db_fetch($pdo, "SELECT name FROM work_locations WHERE id=?", array($work_location_id));
+        if ($wl) $location_text = $wl['name'];
+    }
+    $salary_grade_text = '';
+    if ($salary_grade_id) {
+        $sg = db_fetch($pdo, "SELECT name FROM salary_grades WHERE id=?", array($salary_grade_id));
+        if ($sg) $salary_grade_text = $sg['name'];
+    }
+
     $emp_type_text   = trim($_POST['employment_type_text']);
     $emp_status_text = trim($_POST['employment_status_text']);
+    $is_part_time    = isset($_POST['is_part_time']) ? 1 : 0;
+    $date_hired      = !empty($_POST['date_hired'])   ? $_POST['date_hired'] : null;
+    $basic_salary    = (float)$_POST['basic_salary'] > 0 ? (float)$_POST['basic_salary'] : null;
 
-    $is_part_time  = isset($_POST['is_part_time']) ? 1 : 0;
-    $date_hired    = !empty($_POST['date_hired'])   ? $_POST['date_hired'] : null;
-    $location      = trim($_POST['work_location']);
-    $salary_grade  = trim($_POST['salary_grade']);
-    $basic_salary  = (float)$_POST['basic_salary'] > 0 ? (float)$_POST['basic_salary'] : null;
-
-    // Validate required
     if (empty($employee_id) || empty($full_name)) {
         prg_redirect_error('add_employee.php', 'Employee ID and Full Name are required.');
     }
-
-    // Duplicate employee_id check
     if (db_value($pdo, "SELECT COUNT(*) FROM employees WHERE employee_id=?", array($employee_id))) {
         prg_redirect_error('add_employee.php', "Employee ID '$employee_id' already exists.");
     }
 
-    // ── INSERT — no duplicate columns ───────────────────────────
     db_run($pdo,
         "INSERT INTO employees (
             employee_id, full_name, date_of_birth, gender, civil_status, nationality,
@@ -68,7 +74,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             employment_type_id, employment_status_id,
             employment_type, employment_status,
             is_part_time, date_hired,
-            work_location, salary_grade, basic_salary
+            work_location_id, work_location,
+            salary_grade_id, salary_grade,
+            basic_salary
         ) VALUES (
             ?,?,?,?,?,?,?,?,?,?,
             ?,?,?,?,
@@ -77,7 +85,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ?,?,
             ?,?,
             ?,?,
-            ?,?,?
+            ?,?,
+            ?,?,
+            ?
         )",
         array(
             $employee_id, $full_name, $dob, $gender, $civil, $nationality,
@@ -89,13 +99,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $emp_type_text ?: 'Active',
             $emp_status_text ?: 'Active',
             $is_part_time, $date_hired,
-            $location, $salary_grade, $basic_salary
+            $work_location_id, $location_text,
+            $salary_grade_id, $salary_grade_text,
+            $basic_salary
         )
     );
 
     $new_id = db_lastid($pdo);
 
-    // Auto-create leave credits
     db_run($pdo,
         "INSERT INTO leave_credits
          (employee_id, year, vacation_leave, sick_leave, emergency_leave,
@@ -104,22 +115,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         array($new_id, date('Y'))
     );
 
-    // Set probationary review date if applicable
     if ($emp_type_text === 'Probationary' && $date_hired) {
         $is_teaching = false;
         if ($classification_id) {
-            $cat_row = db_fetch($pdo,
-                "SELECT category FROM employee_classifications WHERE id=?",
-                array($classification_id)
-            );
+            $cat_row = db_fetch($pdo, "SELECT category FROM employee_classifications WHERE id=?", array($classification_id));
             if ($cat_row) {
                 $is_teaching = ($cat_row['category'] === 'Teaching');
                 if (!$is_teaching) {
-                    // Check parent
                     $parent_cat = db_fetch($pdo,
                         "SELECT p.category FROM employee_classifications c
-                         JOIN employee_classifications p ON c.parent_id=p.id
-                         WHERE c.id=?",
+                         JOIN employee_classifications p ON c.parent_id=p.id WHERE c.id=?",
                         array($classification_id)
                     );
                     if ($parent_cat) $is_teaching = ($parent_cat['category'] === 'Teaching');
@@ -129,10 +134,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $prob_months = $is_teaching ? 36 : 6;
         $review_date = date('Y-m-d', strtotime($date_hired . " +{$prob_months} months"));
         db_run($pdo,
-            "UPDATE employees SET
-                classification_status = 'Probationary',
-                next_review_date = ?
-             WHERE id = ?",
+            "UPDATE employees SET classification_status='Probationary', next_review_date=? WHERE id=?",
             array($review_date, $new_id)
         );
     }
@@ -141,47 +143,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // ── Load dropdowns ────────────────────────────────────────────────
-$departments     = db_fetchall($pdo, "SELECT * FROM departments ORDER BY name");
-$positions       = db_fetchall($pdo, "SELECT * FROM positions ORDER BY title");
-$supervisors     = db_fetchall($pdo,
-    "SELECT id, full_name, employee_id FROM employees
-     WHERE employment_status='Active' ORDER BY full_name"
+$departments    = db_fetchall($pdo, "SELECT * FROM departments ORDER BY name");
+$positions      = db_fetchall($pdo, "SELECT * FROM positions ORDER BY title");
+$supervisors    = db_fetchall($pdo,
+    "SELECT id, full_name, employee_id FROM employees WHERE employment_status='Active' ORDER BY full_name"
+);
+$work_locations = db_fetchall($pdo,
+    "SELECT * FROM work_locations WHERE is_active=1 ORDER BY sort_order, name"
+);
+$salary_grades_list = db_fetchall($pdo,
+    "SELECT * FROM salary_grades WHERE is_active=1 ORDER BY sort_order, name"
 );
 
-// Load from master tables if they exist, fallback to hardcoded
 try {
     $classifications = db_fetchall($pdo,
         "SELECT * FROM employee_classifications WHERE is_active=1
          ORDER BY parent_id IS NOT NULL, sort_order, name"
     );
     $ranks = db_fetchall($pdo,
-        "SELECT * FROM employee_ranks WHERE is_active=1
-         ORDER BY category, sort_order, name"
+        "SELECT * FROM employee_ranks WHERE is_active=1 ORDER BY category, sort_order, name"
     );
     $emp_types = db_fetchall($pdo,
-        "SELECT * FROM employment_types WHERE is_active=1
-         ORDER BY sort_order, name"
+        "SELECT * FROM employment_types WHERE is_active=1 ORDER BY sort_order, name"
     );
     $emp_statuses = db_fetchall($pdo,
-        "SELECT * FROM employment_statuses WHERE is_active=1
-         ORDER BY sort_order, name"
+        "SELECT * FROM employment_statuses WHERE is_active=1 ORDER BY sort_order, name"
     );
 } catch (Exception $e) {
-    $classifications = array();
-    $ranks           = array();
-    $emp_types       = array();
-    $emp_statuses    = array();
+    $classifications = array(); $ranks = array(); $emp_types = array(); $emp_statuses = array();
 }
 
-// Fallback if DB tables don't exist yet
 if (empty($emp_types)) {
     $emp_types = array(
         array('id'=>0,'name'=>'Regular/Permanent','probation_months'=>null),
         array('id'=>0,'name'=>'Probationary','probation_months'=>6),
         array('id'=>0,'name'=>'Contractual','probation_months'=>null),
-        array('id'=>0,'name'=>'Substitute','probation_months'=>null),
         array('id'=>0,'name'=>'Part-time','probation_months'=>null),
-        array('id'=>0,'name'=>'Project-based','probation_months'=>null),
     );
 }
 if (empty($emp_statuses)) {
@@ -192,17 +189,15 @@ if (empty($emp_statuses)) {
     );
 }
 
-// Auto-suggest next Employee ID
-$id_prefix = db_value($pdo, "SELECT setting_value FROM settings WHERE setting_key='emp_id_prefix'") ?: 'EMP';
-$id_digits = (int)(db_value($pdo, "SELECT setting_value FROM settings WHERE setting_key='emp_id_digits'") ?: 4);
-$pfx       = $id_prefix . '-';
-$last_num  = (int)(db_value($pdo,
+$id_prefix    = db_value($pdo, "SELECT setting_value FROM settings WHERE setting_key='emp_id_prefix'") ?: 'EMP';
+$id_digits    = (int)(db_value($pdo, "SELECT setting_value FROM settings WHERE setting_key='emp_id_digits'") ?: 4);
+$pfx          = $id_prefix . '-';
+$last_num     = (int)(db_value($pdo,
     "SELECT MAX(CAST(SUBSTRING(employee_id, ?) AS UNSIGNED)) FROM employees WHERE employee_id LIKE ?",
     array(strlen($pfx) + 1, $pfx . '%')
 ) ?: 0);
 $suggested_id = $pfx . str_pad($last_num + 1, $id_digits, '0', STR_PAD_LEFT);
-
-$ranks_json = json_encode($ranks);
+$ranks_json   = json_encode($ranks);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -242,7 +237,7 @@ $ranks_json = json_encode($ranks);
       <form method="POST" action="">
         <?php csrf_field(); ?>
 
-        <!-- ── PERSONAL INFORMATION ── -->
+        <!-- PERSONAL INFORMATION -->
         <div class="card card-primary card-outline">
           <div class="card-header"><h3 class="card-title">Personal information</h3></div>
           <div class="card-body">
@@ -251,8 +246,7 @@ $ranks_json = json_encode($ranks);
                 <div class="form-group">
                   <label>Employee ID <span class="text-danger">*</span></label>
                   <div class="input-group">
-                    <input type="text" name="employee_id" id="empIdInput"
-                           class="form-control" required
+                    <input type="text" name="employee_id" id="empIdInput" class="form-control" required
                            value="<?= htmlspecialchars($suggested_id) ?>">
                     <div class="input-group-append">
                       <button type="button" class="btn btn-outline-secondary"
@@ -325,7 +319,7 @@ $ranks_json = json_encode($ranks);
           </div>
         </div>
 
-        <!-- ── GOVERNMENT IDs ── -->
+        <!-- GOVERNMENT IDs -->
         <div class="card card-success card-outline">
           <div class="card-header"><h3 class="card-title">Government IDs</h3></div>
           <div class="card-body">
@@ -354,7 +348,7 @@ $ranks_json = json_encode($ranks);
           </div>
         </div>
 
-        <!-- ── EMPLOYMENT DETAILS ── -->
+        <!-- EMPLOYMENT DETAILS -->
         <div class="card card-info card-outline">
           <div class="card-header"><h3 class="card-title">Employment details</h3></div>
           <div class="card-body">
@@ -363,26 +357,20 @@ $ranks_json = json_encode($ranks);
               <!-- Classification -->
               <div class="col-md-4">
                 <div class="form-group">
-                  <label>Employee classification
-                    <span class="text-muted" style="font-size:11px;">(Teaching / Non-Teaching)</span>
-                  </label>
-                  <select name="classification_id" id="classSelect" class="form-control"
-                          onchange="filterRanks(this)">
+                  <label>Employee classification</label>
+                  <select name="classification_id" id="classSelect" class="form-control" onchange="filterRanks(this)">
                     <option value="0">-- Select classification --</option>
                     <?php
-                    $top_cl  = array_filter($classifications, function($c){ return !$c['parent_id']; });
-                    $sub_cl  = array_filter($classifications, function($c){ return  $c['parent_id']; });
+                    $top_cl = array_filter($classifications, function($c){ return !$c['parent_id']; });
+                    $sub_cl = array_filter($classifications, function($c){ return  $c['parent_id']; });
                     foreach ($top_cl as $tl):
                     ?>
                       <optgroup label="─ <?= htmlspecialchars($tl['name']) ?> ─">
-                        <option value="<?= $tl['id'] ?>"
-                                data-category="<?= htmlspecialchars($tl['category']) ?>">
+                        <option value="<?= $tl['id'] ?>" data-category="<?= htmlspecialchars($tl['category']) ?>">
                           <?= htmlspecialchars($tl['name']) ?> (General)
                         </option>
-                        <?php foreach ($sub_cl as $sl):
-                          if ($sl['parent_id'] != $tl['id']) continue; ?>
-                          <option value="<?= $sl['id'] ?>"
-                                  data-category="<?= htmlspecialchars($sl['category']) ?>">
+                        <?php foreach ($sub_cl as $sl): if ($sl['parent_id'] != $tl['id']) continue; ?>
+                          <option value="<?= $sl['id'] ?>" data-category="<?= htmlspecialchars($sl['category']) ?>">
                             &nbsp;&nbsp;↳ <?= htmlspecialchars($sl['name']) ?>
                           </option>
                         <?php endforeach; ?>
@@ -401,11 +389,9 @@ $ranks_json = json_encode($ranks);
                     <?php foreach ($ranks as $r): ?>
                       <option value="<?= $r['id'] ?>"
                               data-category="<?= htmlspecialchars($r['category']) ?>"
-							  
-							  data-grade="<?= htmlspecialchars(isset($r['salary_grade']) ? $r['salary_grade'] : '') ?>">
-                              
+                              data-grade="<?= htmlspecialchars($r['salary_grade'] ?? '') ?>">
                         <?= htmlspecialchars($r['name']) ?>
-                        <?= !empty($r['code']) ? ' (' . $r['code'] . ')' : '' ?>
+                        <?= !empty($r['code']) ? ' ('.$r['code'].')' : '' ?>
                       </option>
                     <?php endforeach; ?>
                   </select>
@@ -417,11 +403,8 @@ $ranks_json = json_encode($ranks);
                 <div class="form-group">
                   <label>&nbsp;</label>
                   <div class="custom-control custom-checkbox" style="margin-top:10px;">
-                    <input type="checkbox" name="is_part_time"
-                           class="custom-control-input" id="isPartTime">
-                    <label class="custom-control-label" for="isPartTime">
-                      Part-time / Lecturer
-                    </label>
+                    <input type="checkbox" name="is_part_time" class="custom-control-input" id="isPartTime">
+                    <label class="custom-control-label" for="isPartTime">Part-time / Lecturer</label>
                   </div>
                 </div>
               </div>
@@ -457,31 +440,27 @@ $ranks_json = json_encode($ranks);
                     <option value="0">-- None --</option>
                     <?php foreach ($supervisors as $sv): ?>
                       <option value="<?= $sv['id'] ?>">
-                        <?= htmlspecialchars($sv['full_name']) ?>
-                        (<?= htmlspecialchars($sv['employee_id']) ?>)
+                        <?= htmlspecialchars($sv['full_name']) ?> (<?= htmlspecialchars($sv['employee_id']) ?>)
                       </option>
                     <?php endforeach; ?>
                   </select>
                 </div>
               </div>
 
-              <!-- Employment Type (from DB) -->
+              <!-- Employment Type -->
               <div class="col-md-4">
                 <div class="form-group">
                   <label>Employment type <span class="text-danger">*</span>
-                    <a href="hr_setup.php?tab=types" target="_blank"
-                       style="font-size:11px;" title="Manage types">
+                    <a href="hr_setup.php?tab=types" target="_blank" style="font-size:11px;" title="Manage types">
                       <i class="fas fa-cog text-muted"></i>
                     </a>
                   </label>
-                  <select name="employment_type_id" id="empTypeId"
-                          class="form-control" onchange="onTypeChange(this)">
+                  <select name="employment_type_id" id="empTypeId" class="form-control" onchange="onTypeChange(this)">
                     <option value="0">-- Select type --</option>
                     <?php foreach ($emp_types as $et): ?>
                       <option value="<?= $et['id'] ?>"
                               data-name="<?= htmlspecialchars($et['name']) ?>"
-                              
-						  data-prob="<?= isset($et['probation_months']) ? $et['probation_months'] : '' ?>">
+                              data-prob="<?= $et['probation_months'] ?? '' ?>">
                         <?= htmlspecialchars($et['name']) ?>
                         <?php if (!empty($et['probation_months'])): ?>
                           (<?= $et['probation_months'] ?>mo probation)
@@ -489,26 +468,22 @@ $ranks_json = json_encode($ranks);
                       </option>
                     <?php endforeach; ?>
                   </select>
-                  <!-- Hidden text field for backward compat -->
                   <input type="hidden" name="employment_type_text" id="empTypeText" value="">
                 </div>
               </div>
 
-              <!-- Employment Status (from DB) -->
+              <!-- Employment Status -->
               <div class="col-md-4">
                 <div class="form-group">
                   <label>Employment status <span class="text-danger">*</span>
-                    <a href="hr_setup.php?tab=statuses" target="_blank"
-                       style="font-size:11px;" title="Manage statuses">
+                    <a href="hr_setup.php?tab=statuses" target="_blank" style="font-size:11px;" title="Manage statuses">
                       <i class="fas fa-cog text-muted"></i>
                     </a>
                   </label>
-                  <select name="employment_status_id" id="empStatusId"
-                          class="form-control" onchange="onStatusChange(this)">
+                  <select name="employment_status_id" id="empStatusId" class="form-control" onchange="onStatusChange(this)">
                     <option value="0">-- Select status --</option>
                     <?php foreach ($emp_statuses as $es): ?>
-                      <option value="<?= $es['id'] ?>"
-                              data-name="<?= htmlspecialchars($es['name']) ?>">
+                      <option value="<?= $es['id'] ?>" data-name="<?= htmlspecialchars($es['name']) ?>">
                         <?= htmlspecialchars($es['name']) ?>
                       </option>
                     <?php endforeach; ?>
@@ -520,37 +495,70 @@ $ranks_json = json_encode($ranks);
               <!-- Date Hired -->
               <div class="col-md-4">
                 <div class="form-group"><label>Date hired</label>
-                  <input type="date" name="date_hired" id="dateHired"
-                         class="form-control" value="<?= date('Y-m-d') ?>">
+                  <input type="date" name="date_hired" id="dateHired" class="form-control" value="<?= date('Y-m-d') ?>">
                 </div>
               </div>
 
-              <!-- Probationary info alert -->
+              <!-- Probation info alert -->
               <div class="col-md-12" id="probInfo" style="display:none;">
                 <div class="alert alert-warning py-2 mb-2">
                   <i class="fas fa-clock mr-1"></i>
-                  <strong>Probationary:</strong>
-                  Review date will be auto-set to
+                  <strong>Probationary:</strong> Review date will be auto-set to
                   <span id="probDateDisplay"></span>.
-                  HR and Dept Head will be notified before the review date.
                 </div>
               </div>
 
+              <!-- Work Location DROPDOWN -->
               <div class="col-md-4">
-                <div class="form-group"><label>Work location</label>
-                  <input type="text" name="work_location" class="form-control">
+                <div class="form-group">
+                  <label>Work location
+                    <a href="work_locations.php" target="_blank" style="font-size:11px;" title="Manage locations">
+                      <i class="fas fa-cog text-muted"></i>
+                    </a>
+                  </label>
+                  <select name="work_location_id" id="workLocationSel" class="form-control"
+                          onchange="document.getElementById('workLocationText').value=this.options[this.selectedIndex].text.trim()">
+                    <option value="0">-- Select location --</option>
+                    <?php foreach ($work_locations as $wl): ?>
+                      <option value="<?= $wl['id'] ?>">
+                        <?= htmlspecialchars($wl['name']) ?>
+                        <?= $wl['code'] ? ' ('.$wl['code'].')' : '' ?>
+                      </option>
+                    <?php endforeach; ?>
+                  </select>
+                  <input type="hidden" name="work_location" id="workLocationText" value="">
                 </div>
               </div>
+
+              <!-- Salary Grade DROPDOWN -->
               <div class="col-md-4">
-                <div class="form-group"><label>Salary grade</label>
-                  <input type="text" name="salary_grade" id="salaryGradeInput"
-                         class="form-control" placeholder="e.g. SG-11">
+                <div class="form-group">
+                  <label>Salary grade
+                    <a href="hr_setup.php?tab=salary_grades" target="_blank" style="font-size:11px;" title="Manage salary grades">
+                      <i class="fas fa-cog text-muted"></i>
+                    </a>
+                  </label>
+                  <select name="salary_grade_id" id="salaryGradeSel" class="form-control"
+                          onchange="onSalaryGradeChange(this)">
+                    <option value="0">-- Select salary grade --</option>
+                    <?php foreach ($salary_grades_list as $sg): ?>
+                      <option value="<?= $sg['id'] ?>"
+                              data-name="<?= htmlspecialchars($sg['name']) ?>"
+                              data-rate="<?= $sg['monthly_rate'] ? number_format($sg['monthly_rate'], 2, '.', '') : '' ?>">
+                        <?= htmlspecialchars($sg['name']) ?>
+                        <?= $sg['monthly_rate'] ? ' — ₱'.number_format($sg['monthly_rate'], 2) : '' ?>
+                      </option>
+                    <?php endforeach; ?>
+                  </select>
+                  <input type="hidden" name="salary_grade" id="salaryGradeText" value="">
                 </div>
               </div>
+
+              <!-- Basic Salary -->
               <div class="col-md-4">
                 <div class="form-group"><label>Basic salary (&#8369;)</label>
-                  <input type="number" name="basic_salary" class="form-control"
-                         step="0.01" min="0">
+                  <input type="number" name="basic_salary" id="basicSalaryInput"
+                         class="form-control" step="0.01" min="0">
                 </div>
               </div>
 
@@ -577,18 +585,16 @@ $ranks_json = json_encode($ranks);
 <script>
 var allRanks = <?= $ranks_json ?: '[]' ?>;
 
-// Filter ranks based on classification category
 function filterRanks(sel) {
     var opt = sel.options[sel.selectedIndex];
     var cat = opt ? (opt.getAttribute('data-category') || '') : '';
     var rs  = document.getElementById('rankSelect');
-    // Remove all except placeholder
     while (rs.options.length > 1) rs.remove(1);
     allRanks.forEach(function(r) {
         if (!cat || r.category === cat || r.category === 'Both') {
-            var o        = document.createElement('option');
-            o.value      = r.id;
-            o.text       = r.name + (r.code ? ' (' + r.code + ')' : '');
+            var o = document.createElement('option');
+            o.value = r.id;
+            o.text  = r.name + (r.code ? ' (' + r.code + ')' : '');
             o.setAttribute('data-category', r.category);
             o.setAttribute('data-grade', r.salary_grade || '');
             rs.appendChild(o);
@@ -596,48 +602,56 @@ function filterRanks(sel) {
     });
 }
 
-// Sync hidden text field + show/hide probation info
 function onTypeChange(sel) {
     var opt  = sel.options[sel.selectedIndex];
     var name = opt ? (opt.getAttribute('data-name') || '') : '';
     var prob = opt ? (parseInt(opt.getAttribute('data-prob')) || 0) : 0;
     document.getElementById('empTypeText').value = name;
-
     var info = document.getElementById('probInfo');
-    if (prob > 0) {
-        info.style.display = 'block';
-        updateProbDate(prob);
-    } else {
-        info.style.display = 'none';
-    }
+    if (prob > 0) { info.style.display = 'block'; updateProbDate(prob); }
+    else { info.style.display = 'none'; }
 }
 
 function onStatusChange(sel) {
     var opt  = sel.options[sel.selectedIndex];
-    var name = opt ? (opt.getAttribute('data-name') || '') : '';
-    document.getElementById('empStatusText').value = name;
+    document.getElementById('empStatusText').value = opt ? (opt.getAttribute('data-name') || '') : '';
 }
 
 function updateProbDate(months) {
     var hireInput = document.getElementById('dateHired');
     var display   = document.getElementById('probDateDisplay');
-    if (!hireInput || !hireInput.value) {
-        display.textContent = months + ' months from hire date';
-        return;
-    }
+    if (!hireInput || !hireInput.value) { display.textContent = months + ' months from hire date'; return; }
     var d = new Date(hireInput.value);
     d.setMonth(d.getMonth() + months);
     display.textContent = d.toLocaleDateString('en-PH', {year:'numeric',month:'long',day:'numeric'})
         + ' (' + months + ' months)';
 }
 
-// Auto-fill salary grade from rank
+function onSalaryGradeChange(sel) {
+    var opt  = sel.options[sel.selectedIndex];
+    var name = opt ? (opt.getAttribute('data-name') || '') : '';
+    var rate = opt ? (opt.getAttribute('data-rate') || '') : '';
+    document.getElementById('salaryGradeText').value = name;
+    // Auto-fill basic salary if the grade has a monthly rate
+    if (rate) document.getElementById('basicSalaryInput').value = rate;
+}
+
+// Auto-fill salary grade from rank selection
 document.getElementById('rankSelect').addEventListener('change', function() {
     var grade = this.options[this.selectedIndex].getAttribute('data-grade');
-    if (grade) document.getElementById('salaryGradeInput').value = grade;
+    if (grade) {
+        // Try to match salary grade dropdown by name
+        var sgSel = document.getElementById('salaryGradeSel');
+        for (var i = 0; i < sgSel.options.length; i++) {
+            if (sgSel.options[i].getAttribute('data-name') === grade) {
+                sgSel.selectedIndex = i;
+                onSalaryGradeChange(sgSel);
+                break;
+            }
+        }
+    }
 });
 
-// Update probation date when hire date changes
 document.getElementById('dateHired').addEventListener('change', function() {
     var empType = document.getElementById('empTypeId');
     var prob    = parseInt(empType.options[empType.selectedIndex].getAttribute('data-prob')) || 0;
